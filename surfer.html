@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Frogger Game</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {
+    margin: 0;
+    /* overflow: hidden; Removed as it might clip controls */
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 10px; /* Add some padding at the top */
+  }
+  canvas {
+    border: 1px solid black;
+    background: #1E90FF; /* DodgerBlue for a more vibrant ocean color */
+    display: block; /* Ensures it's a block element for sizing */
+    margin: 10px auto; /* Add some margin and ensure centering if body wasn't flex */
+    width: 90vw; /* Use 90% of viewport width */
+    max-width: 400px; /* Max size is the original design size */
+    height: 90vw; /* Use 90% of viewport width for height to maintain squareness */
+    max-height: 400px; /* Max size is the original design size */
+    /* The game's internal coordinate system remains 400x400. 
+       The browser will scale the rendered canvas element. */
+  }
+  #controlsContainer {
+    text-align: center;
+    margin-top: 15px; /* Increased margin */
+    user-select: none; /* Prevent text selection */
+    -webkit-user-select: none; /* Safari */
+    -ms-user-select: none; /* IE 10+ */
+  }
+  #controlsContainer button {
+    padding: 0.6em 1em; /* Use em for padding that scales with font-size */
+    font-size: 1.2em;   /* Base font size for buttons, will be relative to parent or default */
+    margin: 5px;
+    min-width: 55px;   /* Maintain a decent minimum touch target */
+    min-height: 55px;  /* Maintain a decent minimum touch target */
+    border: 2px solid #adadad;
+    background-color: #f0f0f0;
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  #controlsContainer button:active {
+    background-color: #c5c5c5; /* Darker feedback on tap */
+  }
+  #bottomControls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="400" height="400"></canvas>
+<div id="controlsContainer">
+  <button id="btnUp" aria-label="Up">↑</button>
+  <div id="bottomControls">
+    <button id="btnLeft" aria-label="Left">←</button>
+    <button id="btnDown" aria-label="Down">↓</button>
+    <button id="btnRight" aria-label="Right">→</button>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const btnUp = document.getElementById('btnUp');
+  const btnLeft = document.getElementById('btnLeft');
+  const btnDown = document.getElementById('btnDown');
+  const btnRight = document.getElementById('btnRight');
+
+  const BANK_COLOR = '#F0E68C'; // Khaki for sandy beach color
+  const BANK_HEIGHT = 40;
+
+  const ROCK_COLOR = '#808080'; // Base Grey for rocks
+  const rocks = [
+    { x: 60, y: 85, radius: 10 },   // Near first log path
+    { x: 320, y: 135, radius: 12 }, // Near second log path
+    { x: 120, y: 185, radius: 9 },  // Near third log path
+    { x: 280, y: 235, radius: 11 }  // Near fourth log path
+  ];
+
+  let score = 0;
+  let highestY = canvas.height - BANK_HEIGHT; // Player's initial Y
+  let isGameOver = false;
+  let message = "";
+
+  const player = {
+    x: canvas.width / 2 - 15,
+    y: canvas.height - 40,
+    width: 30,
+    height: 30,
+    color: '#FFD700', // Gold color for the surfboard
+    dx: 0,
+    dy: 0
+  };
+
+  const waves = [
+    { x: 50, y: 60, width: 120, height: 20, speed: 1.2 },    // L1
+    { x: 200, y: 90, width: 150, height: 20, speed: -1.5 }, // L2
+    { x: 0, y: 120, width: 100, height: 20, speed: 1 },      // L3
+    { x: 250, y: 150, width: 100, height: 20, speed: -1 },   // L4
+    { x: 100, y: 180, width: 130, height: 20, speed: 1.5 },  // L5
+    { x: 30, y: 210, width: 120, height: 20, speed: -1.2 },   // L6
+    { x: 180, y: 240, width: 150, height: 20, speed: 1.8 },  // L7
+    { x: 0, y: 270, width: 100, height: 20, speed: -1 },     // L8
+    { x: 200, y: 300, width: 130, height: 20, speed: 1.3 },   // L9
+    { x: 70, y: 330, width: 100, height: 20, speed: -1.1 }    // L10 (newly added wave)
+  ];
+
+  function drawPlayerSprite() {
+    const pX = player.x;
+    const pY = player.y;
+    // Use player.width and player.height for the bounding box.
+    // For drawing, let's make the surfboard more elongated than square.
+    // We'll use player.height for the length of the board, and player.width * 0.6 for its width.
+    const boardLength = player.height; // Use player.height for length (vertical on screen)
+    const boardWidth = player.width * 0.66; // Make it narrower than its length
+
+    const drawX = pX + (player.width - boardWidth) / 2; // Center the narrower board in the original bbox
+    const drawY = pY;
+
+    // Surfboard main color
+    ctx.fillStyle = player.color;
+
+    ctx.beginPath();
+    // Nose (top part of the board, pointing 'up')
+    ctx.moveTo(drawX + boardWidth / 2, drawY); // Tip of the nose
+    // Sides tapering towards a slightly rounded tail
+    ctx.quadraticCurveTo(drawX - boardWidth * 0.1, drawY + boardLength / 3, drawX, drawY + boardLength * 0.6); // Top-left curve
+    ctx.lineTo(drawX + boardWidth * 0.2, drawY + boardLength); // Bottom-left of tail
+    ctx.quadraticCurveTo(drawX + boardWidth / 2, drawY + boardLength - boardWidth * 0.2, drawX + boardWidth * 0.8, drawY + boardLength); // Tail curve
+    ctx.lineTo(drawX + boardWidth, drawY + boardLength * 0.6); // Bottom-right of tail
+    ctx.quadraticCurveTo(drawX + boardWidth + boardWidth * 0.1, drawY + boardLength / 3, drawX + boardWidth / 2, drawY); // Top-right curve
+    ctx.closePath();
+    ctx.fill();
+
+    // Optional: A simple stripe on the surfboard
+    ctx.fillStyle = '#D2691E'; // Chocolate color for stripe
+    const stripeWidth = boardWidth / 5;
+    ctx.fillRect(drawX + boardWidth / 2 - stripeWidth / 2, drawY + boardLength * 0.1, stripeWidth, boardLength * 0.8);
+  }
+
+  function drawPlayer() {
+    drawPlayerSprite();
+  }
+
+  function drawWaves() {
+    const waveBaseColor = '#0077BE'; 
+    const waveFoamColor = '#FFFFFF'; 
+
+    waves.forEach(wave => {
+      const wx = wave.x;
+      const wy = wave.y;
+      const wWidth = wave.width;
+      const wHeight = wave.height;
+
+      // 1. Draw the main blue body of the wave
+      ctx.fillStyle = waveBaseColor;
+      ctx.fillRect(wx, wy, wWidth, wHeight);
+
+      // 2. Draw the white foam on top
+      ctx.fillStyle = waveFoamColor;
+      ctx.beginPath();
+      ctx.moveTo(wx, wy); // Start path at top-left
+
+      const crestPullDown = wHeight * 0.6; // How much the wave dips from the top
+      const numCrests = Math.floor(wWidth / 20) || 1; // At least one crest
+      const segmentWidth = wWidth / numCrests;
+
+      // Create the wavy bottom edge of the foam layer
+      for (let i = 0; i < numCrests; i++) {
+        const startX = wx + i * segmentWidth;
+        const endX = startX + segmentWidth;
+        const midX = startX + segmentWidth / 2;
+        // Alternating dip for the wave crests
+        const dipY = wy + crestPullDown * (i % 2 === 0 ? 0.5 : 1);
+        // For the first segment, moveTo the start, for others, lineTo the start of the curve
+        if (i === 0) {
+             ctx.lineTo(startX, wy); // Ensure top line starts if not already there from moveTo(wx,wy)
+        }
+        ctx.quadraticCurveTo(midX, dipY, endX, wy); 
+      }
+      
+      // Complete the foam shape
+      ctx.lineTo(wx + wWidth, wy + wHeight * 0.6); // Bottom-right of foam area
+      ctx.lineTo(wx, wy + wHeight * 0.6);          // Bottom-left of foam area
+      ctx.closePath(); // Connects back to wx, wy (the start of the path)
+      ctx.fill();
+    });
+  }
+
+  function drawRocks() {
+    const rockColorBase = ROCK_COLOR; // Use the global const
+    const rockColorHighlight = '#A9A9A9'; // A lighter grey
+    const rockColorShadow = '#696969';    // A darker grey
+
+    rocks.forEach(rock => {
+      const centerX = rock.x;
+      const centerY = rock.y;
+      const baseRadius = rock.radius;
+
+      // Draw a cluster of 2-3 overlapping circles for a simple rock formation.
+      // Order of drawing can affect appearance (which circle is on top).
+      // Draw shadow part first (bottom-most)
+      ctx.fillStyle = rockColorShadow;
+      ctx.beginPath();
+      ctx.arc(centerX - baseRadius * 0.25, centerY + baseRadius * 0.25, baseRadius * 0.75, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Main rock component (slightly offset from shadow, drawn on top)
+      ctx.fillStyle = rockColorBase;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, baseRadius, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Highlight component (smaller, on top of main)
+      ctx.fillStyle = rockColorHighlight;
+      ctx.beginPath();
+      ctx.arc(centerX + baseRadius * 0.3, centerY - baseRadius * 0.3, baseRadius * 0.55, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // Optional: A very simple outline for the main base rock to help define it
+      ctx.strokeStyle = '#363636'; // Very dark grey for outline
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, baseRadius, 0, 2 * Math.PI); // Outline the main base circle
+      ctx.stroke();
+    });
+  }
+
+  function moveWaves() {
+    waves.forEach(wave => {
+      wave.x += wave.speed;
+      if (wave.x + wave.width < 0 && wave.speed < 0) {
+        wave.x = canvas.width;
+      } else if (wave.x > canvas.width && wave.speed > 0) {
+        wave.x = -wave.width;
+      }
+    });
+  }
+
+  function resetGame() {
+    player.x = canvas.width / 2 - 15;
+    player.y = canvas.height - BANK_HEIGHT;
+    score = 0;
+    highestY = player.y;
+    isGameOver = false;
+    message = "";
+  }
+
+  function checkWin() {
+    return player.y < BANK_HEIGHT;
+  }
+
+  function detectCollision() {
+    let onWave = false;
+    let collidedWaveSpeed = 0; 
+
+    for (const wave of waves) {
+      if (player.x < wave.x + wave.width &&
+          player.x + player.width > wave.x &&
+          player.y < wave.y + wave.height &&
+          player.y + player.height > wave.y) {
+        onWave = true;
+        collidedWaveSpeed = wave.speed;
+        break; 
+      }
+    }
+
+    if (onWave) {
+      player.x += collidedWaveSpeed; 
+    }
+
+    // Boundary checks
+    if (player.x < 0) player.x = 0;
+    if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+    // player.y boundaries are implicitly handled by win (top bank) or being on bottom bank.
+    // If player goes > canvas.height - BANK_HEIGHT while on bottom bank, it's fine.
+    // If player goes < 0, it's handled by checkWin.
+
+    // Game Over condition: In water zone AND not on a wave
+    if (!onWave && player.y >= BANK_HEIGHT && player.y < canvas.height - BANK_HEIGHT) {
+      return { gameOver: true, message: "Fell off your board! Game Over." }; 
+    }
+    
+    return { gameOver: false, message: "" }; 
+  }
+
+  function gameLoop() {
+    if (isGameOver) {
+      // Display game over message
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(0, canvas.height / 2 - 40, canvas.width, 80);
+      ctx.fillStyle = 'white';
+      ctx.font = '22px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(message, canvas.width / 2, canvas.height / 2 -10);
+      ctx.font = '16px Arial';
+      ctx.fillText("Press any key to restart", canvas.width / 2, canvas.height / 2 + 20);
+      ctx.textAlign = 'left'; // Reset alignment
+      requestAnimationFrame(gameLoop); // Keep drawing message
+      return; // Stop further game logic if game is over
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw riverbanks
+    ctx.fillStyle = BANK_COLOR;
+    ctx.fillRect(0, 0, canvas.width, BANK_HEIGHT); // Top bank
+    ctx.fillRect(0, canvas.height - BANK_HEIGHT, canvas.width, BANK_HEIGHT); // Bottom bank
+
+    drawRocks(); 
+
+    moveWaves();
+    drawWaves();
+    drawPlayer();
+
+    const collisionResult = detectCollision();
+
+    if (collisionResult.gameOver) {
+      isGameOver = true;
+      message = collisionResult.message;
+    } else if (checkWin()) {
+      isGameOver = true;
+      message = "You reached the shore! You win!";
+    }
+
+    // Display Score
+    ctx.fillStyle = 'black';
+    ctx.font = '20px Arial';
+    ctx.fillText('Score: ' + score, 10, 30);
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Keyboard controls
+  document.addEventListener('keydown', function(e) {
+    if (isGameOver) {
+      resetGame();
+      return;
+    }
+    
+    switch(e.key) {
+      case 'ArrowUp':
+        frog.y -= frog.height; 
+        if (frog.y < highestY) {
+          score += 10; 
+          highestY = frog.y; 
+        }
+        break;
+      case 'ArrowDown': frog.y += frog.height; break;
+      case 'ArrowLeft': frog.x -= frog.width; break;
+      case 'ArrowRight': frog.x += frog.width; break;
+    }
+
+    // Constrain frog to canvas boundaries (especially Y for banks)
+    // Y boundary for top bank (win condition implies frog.y can be < BANK_HEIGHT)
+    // If frog moves up into bank area and it's not a win yet (e.g. mid-jump onto bank),
+    // it should be allowed. Win is checked after movement.
+    // If frog moves UP from top bank, prevent it.
+    if (frog.y < 0 && highestY < BANK_HEIGHT) { // If already won and trying to move further up from bank
+        frog.y = 0; // Keep it on the edge of the bank. Or BANK_HEIGHT - frog.height if that's preferred.
+                   // For simplicity, 0 is fine as checkWin is just < BANK_HEIGHT.
+    }
+
+
+    // Prevent frog from moving DOWN off the bottom bank
+    if (frog.y + frog.height > canvas.height) {
+        frog.y = canvas.height - frog.height;
+    }
+    
+    // X boundaries are handled in detectCollision, but good to have here for immediate feedback
+    // and to prevent movement into "void" before collision detection runs.
+    if (frog.x < 0) frog.x = 0;
+    if (frog.x + frog.width > canvas.width) frog.x = canvas.width - frog.width;
+
+  });
+
+  // Keyboard controls
+  document.addEventListener('keydown', function(e) {
+    if (isGameOver) {
+      handlePlayerAction('any_key_to_reset'); // Action string doesn't matter here
+      return;
+    }
+
+    switch(e.key) {
+      case 'ArrowUp':
+      case 'ArrowDown':
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        handlePlayerAction(e.key); // Pass the actual key event string
+        break;
+    }
+  });
+
+  // Touch Controls Event Listeners
+  btnUp.addEventListener('click', function() { handlePlayerAction('Up'); });
+  btnDown.addEventListener('click', function() { handlePlayerAction('Down'); });
+  btnLeft.addEventListener('click', function() { handlePlayerAction('Left'); });
+  btnRight.addEventListener('click', function() { handlePlayerAction('Right'); });
+
+  // Centralized Player Action Handler
+  function handlePlayerAction(action) {
+    if (isGameOver) {
+      resetGame();
+      return;
+    }
+
+    switch(action) {
+      case 'ArrowUp':
+      case 'Up': 
+        player.y -= player.height;
+        if (player.y < highestY) {
+          score += 10;
+          highestY = player.y;
+        }
+        break;
+      case 'ArrowDown':
+      case 'Down':
+        player.y += player.height;
+        break;
+      case 'ArrowLeft':
+      case 'Left':
+        player.x -= player.width;
+        break;
+      case 'ArrowRight':
+      case 'Right':
+        player.x += player.width;
+        break;
+    }
+
+    // Boundary constraints
+    if (player.y < 0 && highestY < BANK_HEIGHT) { 
+        player.y = 0; 
+    } else if (player.y < 0) { 
+        player.y = 0;
+    }
+
+    if (player.y + player.height > canvas.height) {
+        player.y = canvas.height - player.height;
+    }
+    if (player.x < 0) player.x = 0;
+    if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+  }
+
+  resetGame(); // Ensure a clean state before the first game loop
+  gameLoop(); // Start the game
+</script>
+
+</body>
+</html>
